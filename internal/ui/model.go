@@ -374,7 +374,7 @@ func (m *Model) welcome() note {
 		if m.all {
 			return note{"no agent sessions in the last " + durText(m.opt.Since), m.theme.Dim()}
 		}
-		return note{"no agent sessions in " + m.repo.Root + " in the last " + durText(m.opt.Since) + " · start claude, codex, gemini, opencode or auggie here", m.theme.Dim()}
+		return note{"no agent sessions in " + m.repo.Root + " in the last " + durText(m.opt.Since) + " · start claude, codex, gemini, auggie or opencode here", m.theme.Dim()}
 	}
 	where := ""
 	if m.repo.State.Branch != "" {

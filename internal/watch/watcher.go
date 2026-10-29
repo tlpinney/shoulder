@@ -56,7 +56,7 @@ func New(opt Options) *Watcher {
 func (w *Watcher) init() {
 	w.sessions = map[string]*session{}
 	w.notes = map[string]string{}
-	w.sources = []source{newClaude(), newCodex(), newGemini(), newOpencode(), newOmp(), newAuggie()}
+	w.sources = []source{newClaude(), newCodex(), newGemini(), newAuggie(), newOpencode(), newOmp()}
 }
 
 // Once reads the sessions one time and returns the snapshot, for a caller
