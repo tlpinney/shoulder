@@ -88,7 +88,7 @@ shoulder reads the session logs that the agents already write. You do not config
 | Gemini CLI | `~/.gemini/tmp/` | `GEMINI_CLI_HOME` |
 | opencode 2.x | `~/.local/share/opencode/opencode.db` | `XDG_DATA_HOME` |
 | omp | `~/.omp/agent/sessions/` | `PI_CODING_AGENT_DIR` |
-| Auggie (Augment CLI) | `~/.augment/sessions/` | none (auggie reads `--augment-cache-dir` only) |
+| Auggie (Augment CLI) | `~/.augment/sessions/` | — |
 
 shoulder only reads. It does not send input to an agent, it does not change files, and it does not connect to the network. It opens the opencode database read-only.
 
@@ -291,6 +291,7 @@ In a git repository, shoulder compares each file with `HEAD`. Outside git, it co
 - For Claude Code, Codex, opencode, omp and Auggie, the approval state is an estimate. See [Agent states](#agent-states).
 - When omp moves a command to the background, shoulder shows it as running until omp writes the output of the finished job.
 - Auggie saves its session after each model response, so shoulder sees a tool call when the response ends, and its result when the next response ends.
+- shoulder reads Auggie sessions only in `~/.augment/`. It does not find the sessions of an auggie that runs with `--augment-cache-dir`.
 - shoulder finds edits through the shell only for files in the `git status` of this project. When you edit a file in your editor while an agent runs a command, the edit also goes to that agent.
 - In all projects, `FILES` shows the git changes of this project only. For the other projects, it shows the files that agents edited.
 - The binaries are for Linux and macOS. shoulder is not tested on Windows.
