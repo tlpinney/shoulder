@@ -2,8 +2,10 @@ package watch
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -452,5 +454,70 @@ func TestLongCommandWithReadsIsRunning(t *testing.T) {
 	a := Agent{Events: evs, Updated: start}
 	if act := a.Activity(time.Now()); act.Status != Active || act.Act != "running" {
 		t.Fatalf("got %+v", act)
+	}
+}
+
+func TestAuggieSession(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "a1.json")
+	tool := func(id, name, input string) string {
+		b, _ := json.Marshal(input)
+		return `{"type":5,"tool_use":{"tool_use_id":"` + id + `","tool_name":"` + name + `","input_json":` + string(b) + `}}`
+	}
+	result := func(id, content string, isErr bool) string {
+		b, _ := json.Marshal(content)
+		return `{"type":1,"tool_result_node":{"tool_use_id":"` + id + `","content":` + string(b) + `,"is_error":` + strconv.FormatBool(isErr) + `}}`
+	}
+	ide := `{"type":4,"ide_state_node":{"workspace_folders":[{"repository_root":"/w","folder_root":"/w"}]}}`
+	write := func(items ...string) {
+		t.Helper()
+		body := `{"sessionId":"a1","title":"fix add","chatHistory":[` + strings.Join(items, ",") + `]}`
+		if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	first := `{"completed":true,"finishedAt":"2026-10-29T10:00:01Z","exchange":{"request_message":"fix add","response_text":"Looking.","request_nodes":[` + ide + `],"response_nodes":[` +
+		tool("t1", "view", `{"path":"calc.go","view_range":[3,5]}`) + `,` +
+		tool("t2", "str-replace-editor", `{"command":"str_replace","path":"calc.go","old_str_1":"a - b","new_str_1":"a + b","old_str_start_line_number_1":4}`) + `,` +
+		tool("t3", "launch-process", `{"command":"go test ./...","cwd":"/w","wait":true}`) + `]}}`
+	write(first)
+
+	sess, err := readAugSession(path)
+	if err != nil || sess.root() != "/w" {
+		t.Fatalf("root: %v %+v", err, sess)
+	}
+	h := &auggieHandle{path: path}
+	s := newSession("auggie:x", "auggie", h)
+	s.Cwd = "/w"
+	if err := h.poll(s); err != nil {
+		t.Fatal(err)
+	}
+	if s.Title != "fix add" || len(s.Events) != 5 {
+		t.Fatalf("events: %+v", s.Events)
+	}
+	if e := s.Events[2]; e.Kind != KindRead || e.File != "/w/calc.go" || e.Line != 2 || e.EndLine != 4 {
+		t.Fatalf("view: %+v", e)
+	}
+	if e := s.Events[3]; e.Kind != KindEdit || e.Tool != "str-replace-editor" || e.Add != 1 || e.Del != 1 || e.Line != 3 || e.Needle != "a + b" {
+		t.Fatalf("edit: %+v", e)
+	}
+	if e := s.Events[4]; e.Kind != KindRun || e.Result != Pending {
+		t.Fatalf("run: %+v", e)
+	}
+
+	second := `{"completed":true,"finishedAt":"2026-10-29T10:00:05Z","exchange":{"request_message":"","response_text":"Fixed.","request_nodes":[` +
+		result("t1", "file", false) + `,` + result("t2", "ok", false) + `,` +
+		result("t3", "Here are the results from executing the command. <return-code> 1 </return-code> <output> FAIL calc </output>", true) +
+		`],"response_nodes":[]}}`
+	write(first, second)
+	h.mtime = time.Time{}
+	if err := h.poll(s); err != nil {
+		t.Fatal(err)
+	}
+	if e := s.Events[4]; e.Result != Failed || e.Exit != 1 || len(e.Output) != 1 || e.Output[0] != "FAIL calc" {
+		t.Fatalf("run result: %+v", e)
+	}
+	if !s.TurnEnded || s.Events[len(s.Events)-1].Kind != KindDone {
+		t.Fatalf("turn end: %+v", s.Events)
 	}
 }
