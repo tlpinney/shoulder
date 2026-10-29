@@ -475,28 +475,24 @@ func TestAuggieSession(t *testing.T) {
 		`{"id":2,"type":1,"tool_result_node":{"tool_use_id":"t2","content":"Successfully edited the file calc.go.","is_error":false}},` +
 		`{"id":3,"type":1,"tool_result_node":{"tool_use_id":"t3","content":"Here are the results from executing the command.\n<return-code>\n1\n</return-code>\n<output>\nFAIL calc\n</output>","is_error":true}}],` +
 		`"response_nodes":[{"id":0,"type":0,"content":"The test fails."}]}}`
-	write := func(name, extra string, items ...string) string {
+	write := func(name string, items ...string) string {
 		t.Helper()
 		path := filepath.Join(dir, name+".json")
-		body := `{"sessionId":"` + name + `","title":"Fix add"` + extra + `,"chatHistory":[` + strings.Join(items, ",") + `]}`
+		body := `{"sessionId":"` + name + `","title":"Fix add","chatHistory":[` + strings.Join(items, ",") + `]}`
 		if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
 			t.Fatal(err)
 		}
 		return path
 	}
-	path := write("a1", "", first)
+	path := write("a1", first)
 	other := strings.ReplaceAll(first, `"/w"`, `"/x"`)
-	write("b2", "", other)
-	sub := write("c3", `,"parentConversationId":"a1"`, first)
+	write("b2", other)
 
 	w := New(Options{Root: "/w", Since: time.Hour})
 	src := newAuggie()
 	src.scan(w, time.Now().Add(-time.Hour))
-	if len(w.sessions) != 2 || w.sessions["auggie:"+filepath.Join(dir, "b2.json")] != nil {
+	if len(w.sessions) != 1 {
 		t.Fatalf("sessions: %v", w.sessions)
-	}
-	if s := w.sessions["auggie:"+sub]; s == nil || s.Name != "subagent" || s.Parent != "auggie:"+path {
-		t.Fatalf("subagent: %+v", s)
 	}
 	s := w.sessions["auggie:"+path]
 	if s == nil || s.Cwd != "/w" {
@@ -521,7 +517,7 @@ func TestAuggieSession(t *testing.T) {
 		t.Fatalf("act: %+v", act)
 	}
 
-	write("a1", "", first, second)
+	write("a1", first, second)
 	if err := s.h.poll(s); err != nil {
 		t.Fatal(err)
 	}
@@ -570,7 +566,8 @@ func TestAuggieTools(t *testing.T) {
 		{"web-fetch", `{"url":"https://go.dev"}`, KindWeb, "", -1, -1, 0, 0, "https://go.dev"},
 		{"web-search", `{"query":"bubbletea"}`, KindWeb, "", -1, -1, 0, 0, "bubbletea"},
 		{"update_tasks", `{}`, KindPlan, "", -1, -1, 0, 0, "plan"},
-		{"sub-agent-explore", `{"description":"find the tests"}`, KindTask, "", -1, -1, 0, 0, "find the tests"},
+		{"sub-agent-explore", `{"action":"run","name":"read-files","instruction":"Read calc.go."}`, KindTask, "", -1, -1, 0, 0, "read-files"},
+		{"sub-agent-explore", `{"action":"run","instruction":"Read calc.go."}`, KindTask, "", -1, -1, 0, 0, "Read calc.go."},
 		{"read-process", `{"terminal_id":3}`, KindTool, "", -1, -1, 0, 0, "read-process"},
 	}
 	for _, c := range cases {

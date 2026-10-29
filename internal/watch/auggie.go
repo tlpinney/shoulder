@@ -14,7 +14,8 @@ import (
 // It rewrites the whole file after each exchange. An exchange is one model
 // response with its tool calls. The results of the calls come in the request
 // nodes of the next exchange. Tool paths are relative to the workspace root,
-// which an IDE state node in the requests gives.
+// which an IDE state node in the requests gives. A subagent runs inside the
+// sub-agent tool call and has no session file of its own.
 type auggie struct {
 	dir  string
 	skip map[string]time.Time // modification time of files outside the root
@@ -49,19 +50,14 @@ func (a *auggie) scan(w *Watcher, cutoff time.Time) {
 		delete(a.skip, f)
 		s := newSession(key, "auggie", &auggieHandle{path: f})
 		s.Cwd = root
-		if p := sess.ParentConversationID; p != "" {
-			s.Name = "subagent"
-			s.Parent = "auggie:" + filepath.Join(a.dir, p+".json")
-		}
 		w.add(s)
 	}
 }
 
 type augSession struct {
-	Title                string    `json:"title"`
-	CustomTitle          string    `json:"customTitle"`
-	ParentConversationID string    `json:"parentConversationId"`
-	ChatHistory          []augItem `json:"chatHistory"`
+	Title       string    `json:"title"`
+	CustomTitle string    `json:"customTitle"`
+	ChatHistory []augItem `json:"chatHistory"`
 }
 
 type augItem struct {
@@ -286,7 +282,7 @@ func augToolEvents(name string, in args, cwd string) []Event {
 		return toolEvents("update_plan", in, cwd, toolStyle{})
 	}
 	if strings.HasPrefix(name, "sub-agent") {
-		return toolEvents("task", in, cwd, toolStyle{})
+		return toolEvents("task", args{"description": in.str("name", "instruction")}, cwd, toolStyle{})
 	}
 	return toolEvents(name, in, cwd, toolStyle{})
 }
