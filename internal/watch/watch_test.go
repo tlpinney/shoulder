@@ -545,6 +545,53 @@ func TestAuggieSession(t *testing.T) {
 	}
 }
 
+func TestAuggieSubagent(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "s1.json")
+	call := `{"completed":true,"finishedAt":"2026-10-29T10:00:01.000Z","exchange":{"request_message":"use a sub-agent to read calc.go","response_text":"","request_nodes":[{"id":1,"type":4,"ide_state_node":{"workspace_folders":[{"repository_root":"/w","folder_root":"/w"}]}}],"response_nodes":[` +
+		`{"id":1,"type":5,"tool_use":{"tool_use_id":"t1","tool_name":"sub-agent-explore","input_json":"{\"action\":\"run\",\"name\":\"read-files\",\"instruction\":\"Read calc.go and report what it contains.\"}","started_at_ms":1793268001000}}]}}`
+	reply := `{"completed":true,"finishedAt":"2026-10-29T10:00:30.000Z","exchange":{"request_message":"","response_text":"calc.go defines add.","request_nodes":[` +
+		`{"id":1,"type":1,"tool_result_node":{"tool_use_id":"t1","content":"## Summary\n\ncalc.go defines add(a, b int) int.","is_error":false}}],` +
+		`"response_nodes":[{"id":0,"type":0,"content":"calc.go defines add."}]}}`
+	write := func(items ...string) {
+		t.Helper()
+		if err := os.WriteFile(path, []byte(`{"sessionId":"s1","chatHistory":[`+strings.Join(items, ",")+`]}`), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write(call)
+	h := &auggieHandle{path: path}
+	s := newSession("auggie:s1", "auggie", h)
+	s.Cwd = "/w"
+	if err := h.poll(s); err != nil {
+		t.Fatal(err)
+	}
+	if e := s.Events[1]; e.Kind != KindTask || e.Tool != "sub-agent-explore" || e.Text != "read-files" || e.Result != Pending {
+		t.Fatalf("task: %+v", e)
+	}
+	// The subagent works longer than the approval estimate, and stays active.
+	if act := s.Activity(time.Date(2026, 10, 29, 10, 0, 25, 0, time.UTC)); act.Status != Active || act.Act != "delegating" {
+		t.Fatalf("act: %+v", act)
+	}
+	write(call, reply)
+	if err := h.poll(s); err != nil {
+		t.Fatal(err)
+	}
+	var kinds []Kind
+	for _, e := range s.Events {
+		kinds = append(kinds, e.Kind)
+	}
+	want := []Kind{KindYou, KindTask, KindSay, KindDone}
+	if strings.Join(kindStrings(kinds), ",") != strings.Join(kindStrings(want), ",") {
+		t.Fatalf("kinds: %v", kinds)
+	}
+	if e := s.Events[1]; e.Result != OK || e.Summary() != "✓ ok" {
+		t.Fatalf("task result: %+v", e)
+	}
+	if !s.TurnEnded || s.Events[3].Text != "calc.go defines add." {
+		t.Fatalf("turn end: %+v", s.Events[3])
+	}
+}
+
 func TestAuggieTools(t *testing.T) {
 	cases := []struct {
 		name, input string
